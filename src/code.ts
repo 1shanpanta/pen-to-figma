@@ -4,18 +4,19 @@ import { convertNode } from "./converter";
 
 figma.showUI(__html__, { width: 480, height: 520 });
 
-figma.ui.onmessage = async (msg: { type: string; data?: string }) => {
-  if (msg.type === "import") {
-    if (!msg.data) {
+figma.ui.onmessage = async (event: { type: string; data?: string }) => {
+  if (event.type === "import") {
+    if (!event.data) {
       figma.ui.postMessage({ type: "error", message: "No data provided" });
       return;
     }
 
     try {
-      const parsed = JSON.parse(msg.data);
+      var inputData = event.data;
+      var parsed = JSON.parse(inputData);
 
       // Handle both formats: array of nodes OR {children: [...]}
-      const nodes: PenNode[] = Array.isArray(parsed)
+      var nodes: PenNode[] = Array.isArray(parsed)
         ? parsed
         : parsed.children || [];
 
@@ -24,32 +25,32 @@ figma.ui.onmessage = async (msg: { type: string; data?: string }) => {
         return;
       }
 
-      figma.ui.postMessage({ type: "status", message: `Loading fonts...` });
+      figma.ui.postMessage({ type: "status", message: "Loading fonts..." });
 
       // Pre-load all fonts
       await preloadFonts(nodes);
 
       figma.ui.postMessage({
         type: "status",
-        message: `Creating ${nodes.length} screens...`,
+        message: "Creating " + nodes.length + " screens...",
       });
 
       // Convert each top-level node (continue on per-screen errors)
-      const created: SceneNode[] = [];
-      let errors = 0;
-      for (let i = 0; i < nodes.length; i++) {
-        const node = nodes[i];
+      var created: SceneNode[] = [];
+      var errorCount = 0;
+      for (var i = 0; i < nodes.length; i++) {
+        var screenNode = nodes[i];
         figma.ui.postMessage({
           type: "status",
-          message: `Creating screen ${i + 1}/${nodes.length}: ${node.name || node.id}`,
+          message: "Creating screen " + (i + 1) + "/" + nodes.length + ": " + (screenNode.name || screenNode.id),
         });
 
         try {
-          const figmaNode = await convertNode(node, figma.currentPage);
+          var figmaNode = await convertNode(screenNode, figma.currentPage);
           if (figmaNode) created.push(figmaNode);
         } catch (screenErr) {
-          errors++;
-          console.error(`Failed screen ${i + 1} (${node.name || node.id}):`, screenErr);
+          errorCount++;
+          console.error("Failed screen " + (i + 1) + ":", screenErr);
         }
       }
 
@@ -59,17 +60,17 @@ figma.ui.onmessage = async (msg: { type: string; data?: string }) => {
         figma.viewport.scrollAndZoomIntoView(created);
       }
 
-      const msg = errors > 0
-        ? `Imported ${created.length} screens (${errors} had errors)`
-        : `Imported ${created.length} screens`;
-      figma.ui.postMessage({ type: "done", message: msg });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      figma.ui.postMessage({ type: "error", message });
+      var resultText = errorCount > 0
+        ? "Imported " + created.length + " screens (" + errorCount + " had errors)"
+        : "Imported " + created.length + " screens";
+      figma.ui.postMessage({ type: "done", message: resultText });
+    } catch (topErr) {
+      var errText = topErr instanceof Error ? topErr.message : String(topErr);
+      figma.ui.postMessage({ type: "error", message: errText });
     }
   }
 
-  if (msg.type === "cancel") {
+  if (event.type === "cancel") {
     figma.closePlugin();
   }
 };
