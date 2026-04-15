@@ -138,9 +138,13 @@ function applyCornerRadius(node: CornerMixin & RectangleCornerMixin, radius: num
 // -- Layout --
 
 function applyLayout(node: FrameNode, pen: PenNode) {
-  if (pen.layout === "vertical") {
+  // .pen spec: frames default to horizontal, groups default to none
+  var defaultLayout = pen.type === "group" ? "none" : "horizontal";
+  var layoutValue = pen.layout || defaultLayout;
+
+  if (layoutValue === "vertical") {
     node.layoutMode = "VERTICAL";
-  } else if (pen.layout === "horizontal") {
+  } else if (layoutValue === "horizontal") {
     node.layoutMode = "HORIZONTAL";
   } else {
     node.layoutMode = "NONE";
@@ -250,11 +254,13 @@ async function createFrame(pen: PenNode, parent: BaseNode & ChildrenMixin): Prom
   var isTopLevel = parent === figma.currentPage;
   var hasFixedWidth = typeof pen.width === "number";
   var hasFixedHeight = typeof pen.height === "number";
+  var isFillW = pen.width === "fill_container";
+  var isFillH = pen.height === "fill_container";
 
-  // Set explicit size first
+  // Set explicit size — use 1 for fill_container (Figma will override when FILL is set)
   node.resize(
-    hasFixedWidth ? (pen.width as number) : 100,
-    hasFixedHeight ? (pen.height as number) : 100
+    hasFixedWidth ? (pen.width as number) : (isFillW ? 1 : 100),
+    hasFixedHeight ? (pen.height as number) : (isFillH ? 1 : 100)
   );
 
   // Fills
@@ -279,8 +285,9 @@ async function createFrame(pen: PenNode, parent: BaseNode & ChildrenMixin): Prom
   // Layout mode
   applyLayout(node, pen);
 
-  // For top-level frames or frames with explicit dimensions, lock sizing to FIXED
+  // Set sizing on the frame itself
   if (node.layoutMode !== "NONE") {
+    // Fixed dimensions
     if (hasFixedWidth) {
       node.layoutSizingHorizontal = "FIXED";
     }
@@ -295,7 +302,22 @@ async function createFrame(pen: PenNode, parent: BaseNode & ChildrenMixin): Prom
     node.y = pen.y || 0;
   }
 
+  // Append to parent BEFORE setting fill sizing (parent must have auto-layout)
   parent.appendChild(node);
+
+  // Set fill_container/fit_content sizing (must happen after appending to parent)
+  if (!isTopLevel) {
+    if (isFillW) {
+      trySetLayoutSizing(node, "layoutSizingHorizontal", "FILL");
+    } else if (typeof pen.width === "string" && pen.width.startsWith("fit_content")) {
+      trySetLayoutSizing(node, "layoutSizingHorizontal", "HUG");
+    }
+    if (isFillH) {
+      trySetLayoutSizing(node, "layoutSizingVertical", "FILL");
+    } else if (typeof pen.height === "string" && pen.height.startsWith("fit_content")) {
+      trySetLayoutSizing(node, "layoutSizingVertical", "HUG");
+    }
+  }
 
   // Build children
   if (pen.children) {
@@ -303,23 +325,6 @@ async function createFrame(pen: PenNode, parent: BaseNode & ChildrenMixin): Prom
       var child = pen.children[ci];
       if (typeof child === "string") continue; // Skip "..." truncation markers
       await convertNode(child, node);
-    }
-  }
-
-  // Apply dynamic sizing (fill_container, fit_content) AFTER children exist
-  // But don't override fixed dimensions on top-level screens
-  if (node.layoutMode !== "NONE" && !isTopLevel) {
-    if (!hasFixedWidth && pen.width !== undefined) {
-      trySetLayoutSizing(node, "layoutSizingHorizontal",
-        pen.width === "fill_container" ? "FILL" :
-        typeof pen.width === "string" && pen.width.startsWith("fit_content") ? "HUG" : "FIXED"
-      );
-    }
-    if (!hasFixedHeight && pen.height !== undefined) {
-      trySetLayoutSizing(node, "layoutSizingVertical",
-        pen.height === "fill_container" ? "FILL" :
-        typeof pen.height === "string" && pen.height.startsWith("fit_content") ? "HUG" : "FIXED"
-      );
     }
   }
 
