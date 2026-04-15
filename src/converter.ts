@@ -250,19 +250,18 @@ async function createFrame(pen: PenNode, parent: BaseNode & ChildrenMixin): Prom
     // Horizontal sizing
     if (widthSizing === "FILL") {
       setSizing(node, "horizontal", "FILL");
-    } else if (widthSizing === "HUG") {
+    } else if (widthSizing === "HUG" || widthSizing === null) {
       setSizing(node, "horizontal", "HUG");
-    } else if (widthSizing === "FIXED" && node.layoutMode !== "NONE") {
+    } else if (widthSizing === "FIXED") {
       setSizing(node, "horizontal", "FIXED");
     }
-    // If undefined, Figma defaults to HUG for auto-layout children
 
     // Vertical sizing
     if (heightSizing === "FILL") {
       setSizing(node, "vertical", "FILL");
-    } else if (heightSizing === "HUG") {
+    } else if (heightSizing === "HUG" || heightSizing === null) {
       setSizing(node, "vertical", "HUG");
-    } else if (heightSizing === "FIXED" && node.layoutMode !== "NONE") {
+    } else if (heightSizing === "FIXED") {
       setSizing(node, "vertical", "FIXED");
     }
   }
