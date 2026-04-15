@@ -7,42 +7,38 @@ import { loadFont } from "./fonts";
 function convertSingleFill(fill: PenFill): Paint | null {
   if (typeof fill === "string") {
     if (fill.length < 4) return null;
-    const { r, g, b, a } = parseHexColor(fill);
-    if (a === 0) return null;
-    return { type: "SOLID", color: { r, g, b }, opacity: a } as SolidPaint;
+    var parsed = parseHexColor(fill);
+    if (parsed.a === 0) return null;
+    return { type: "SOLID", color: { r: parsed.r, g: parsed.g, b: parsed.b }, opacity: parsed.a } as SolidPaint;
   }
 
-  if (fill.type === "color") {
-    if (fill.enabled === false) return null;
-    const { r, g, b, a } = parseHexColor(fill.color);
-    return { type: "SOLID", color: { r, g, b }, opacity: a } as SolidPaint;
-  }
+  if (typeof fill === "object" && fill !== null) {
+    if (fill.type === "color") {
+      if (fill.enabled === false) return null;
+      var c = parseHexColor(fill.color);
+      return { type: "SOLID", color: { r: c.r, g: c.g, b: c.b }, opacity: c.a } as SolidPaint;
+    }
 
-  if (fill.type === "gradient") {
-    if (fill.enabled === false) return null;
-    const stops: ColorStop[] = (fill.colors || []).map((c) => {
-      const { r, g, b, a } = parseHexColor(c.color);
-      return { color: { r, g, b, a }, position: c.position };
-    });
+    if (fill.type === "gradient") {
+      if (fill.enabled === false) return null;
+      var stops: ColorStop[] = (fill.colors || []).map(function(cs) {
+        var gc = parseHexColor(cs.color);
+        return { color: { r: gc.r, g: gc.g, b: gc.b, a: gc.a }, position: cs.position };
+      });
+      var gradientType =
+        fill.gradientType === "radial" ? "GRADIENT_RADIAL" :
+        fill.gradientType === "angular" ? "GRADIENT_ANGULAR" : "GRADIENT_LINEAR";
+      return {
+        type: gradientType,
+        gradientStops: stops,
+        gradientTransform: toGradientTransform(fill.rotation || 0, fill.center, fill.size),
+        opacity: fill.opacity != null ? fill.opacity : 1,
+      } as GradientPaint;
+    }
 
-    const gradientType =
-      fill.gradientType === "radial"
-        ? "GRADIENT_RADIAL"
-        : fill.gradientType === "angular"
-          ? "GRADIENT_ANGULAR"
-          : "GRADIENT_LINEAR";
-
-    return {
-      type: gradientType,
-      gradientStops: stops,
-      gradientTransform: toGradientTransform(fill.rotation || 0, fill.center, fill.size),
-      opacity: fill.opacity ?? 1,
-    } as GradientPaint;
-  }
-
-  // Image fills: create a placeholder solid
-  if (fill.type === "image") {
-    return { type: "SOLID", color: { r: 0.5, g: 0.5, b: 0.5 }, opacity: 0.3 } as SolidPaint;
+    if (fill.type === "image") {
+      return { type: "SOLID", color: { r: 0.5, g: 0.5, b: 0.5 }, opacity: 0.3 } as SolidPaint;
+    }
   }
 
   return null;
@@ -50,34 +46,34 @@ function convertSingleFill(fill: PenFill): Paint | null {
 
 function convertFills(fill: PenFill | PenFill[] | undefined): Paint[] {
   if (!fill) return [];
-  const fills = Array.isArray(fill) ? fill : [fill];
+  var fills = Array.isArray(fill) ? fill : [fill];
   return fills.map(convertSingleFill).filter(Boolean) as Paint[];
 }
 
 // -- Stroke conversion --
 
-function applyStroke(node: GeometryMixin & IndividualStrokesMixin, stroke: PenStroke) {
-  const paints = convertFills(stroke.fill);
-  if (paints.length > 0) {
-    (node as any).strokes = paints;
-  }
+function applyStroke(node: any, stroke: PenStroke) {
+  var paints = convertFills(stroke.fill);
+  if (paints.length > 0) node.strokes = paints;
 
   if (typeof stroke.thickness === "number") {
     node.strokeWeight = stroke.thickness;
   } else if (typeof stroke.thickness === "object") {
-    node.strokeTopWeight = stroke.thickness.top ?? 0;
-    node.strokeRightWeight = stroke.thickness.right ?? 0;
-    node.strokeBottomWeight = stroke.thickness.bottom ?? 0;
-    node.strokeLeftWeight = stroke.thickness.left ?? 0;
+    try {
+      node.strokeTopWeight = stroke.thickness.top || 0;
+      node.strokeRightWeight = stroke.thickness.right || 0;
+      node.strokeBottomWeight = stroke.thickness.bottom || 0;
+      node.strokeLeftWeight = stroke.thickness.left || 0;
+    } catch (_e) {
+      // Per-side strokes not supported on this node type
+    }
   }
 
   if (stroke.align) {
-    const alignMap: Record<string, "INSIDE" | "CENTER" | "OUTSIDE"> = {
-      inside: "INSIDE",
-      center: "CENTER",
-      outside: "OUTSIDE",
-    };
-    node.strokeAlign = alignMap[stroke.align] || "INSIDE";
+    try {
+      var alignMap: Record<string, string> = { inside: "INSIDE", center: "CENTER", outside: "OUTSIDE" };
+      node.strokeAlign = alignMap[stroke.align] || "INSIDE";
+    } catch (_e) { /* skip */ }
   }
 }
 
@@ -85,45 +81,38 @@ function applyStroke(node: GeometryMixin & IndividualStrokesMixin, stroke: PenSt
 
 function convertEffects(effects: PenEffect | PenEffect[] | undefined): Effect[] {
   if (!effects) return [];
-  const list = Array.isArray(effects) ? effects : [effects];
+  var list = Array.isArray(effects) ? effects : [effects];
+  var result: Effect[] = [];
 
-  return list
-    .filter((e) => e.enabled !== false)
-    .map((e): Effect | null => {
-      if (e.type === "shadow") {
-        const { r, g, b, a } = parseHexColor(e.color || "#00000040");
-        return {
-          type: e.shadowType === "inner" ? "INNER_SHADOW" : "DROP_SHADOW",
-          color: { r, g, b, a },
-          offset: { x: e.offset?.x ?? 0, y: e.offset?.y ?? 4 },
-          radius: e.blur ?? 8,
-          spread: e.spread ?? 0,
-          visible: true,
-          blendMode: "NORMAL",
-        } as DropShadowEffect | InnerShadowEffect;
-      }
-      if (e.type === "blur") {
-        return {
-          type: "LAYER_BLUR",
-          radius: e.radius ?? 10,
-          visible: true,
-        } as BlurEffect;
-      }
-      if (e.type === "background_blur") {
-        return {
-          type: "BACKGROUND_BLUR",
-          radius: e.radius ?? 10,
-          visible: true,
-        } as BlurEffect;
-      }
-      return null;
-    })
-    .filter(Boolean) as Effect[];
+  for (var i = 0; i < list.length; i++) {
+    var e = list[i];
+    if (e.enabled === false) continue;
+
+    if (e.type === "shadow") {
+      var sc = parseHexColor(e.color || "#00000040");
+      result.push({
+        type: e.shadowType === "inner" ? "INNER_SHADOW" : "DROP_SHADOW",
+        color: { r: sc.r, g: sc.g, b: sc.b, a: sc.a },
+        offset: { x: e.offset ? e.offset.x : 0, y: e.offset ? e.offset.y : 4 },
+        radius: e.blur != null ? e.blur : 8,
+        spread: e.spread || 0,
+        visible: true,
+        blendMode: "NORMAL",
+      } as any);
+    }
+    if (e.type === "blur") {
+      result.push({ type: "LAYER_BLUR", radius: e.radius || 10, visible: true } as BlurEffect);
+    }
+    if (e.type === "background_blur") {
+      result.push({ type: "BACKGROUND_BLUR", radius: e.radius || 10, visible: true } as BlurEffect);
+    }
+  }
+  return result;
 }
 
 // -- Corner radius --
 
-function applyCornerRadius(node: CornerMixin & RectangleCornerMixin, radius: number | [number, number, number, number] | undefined) {
+function applyCornerRadius(node: any, radius: number | [number, number, number, number] | undefined) {
   if (radius === undefined) return;
   if (typeof radius === "number") {
     node.cornerRadius = radius;
@@ -132,6 +121,29 @@ function applyCornerRadius(node: CornerMixin & RectangleCornerMixin, radius: num
     node.topRightRadius = radius[1];
     node.bottomRightRadius = radius[2];
     node.bottomLeftRadius = radius[3];
+  }
+}
+
+// -- Common visual properties (fills, strokes, effects, radius, opacity) --
+
+function applyVisuals(node: any, pen: PenNode) {
+  var fills = convertFills(pen.fill);
+  node.fills = fills.length > 0 ? fills : [];
+
+  if (pen.stroke) applyStroke(node, pen.stroke);
+  if (pen.cornerRadius !== undefined) applyCornerRadius(node, pen.cornerRadius);
+  if (pen.effect) node.effects = convertEffects(pen.effect);
+  if (pen.opacity !== undefined) node.opacity = pen.opacity;
+}
+
+// -- Safe layout sizing setter --
+
+function setSizing(node: SceneNode, axis: "horizontal" | "vertical", value: "FILL" | "HUG" | "FIXED") {
+  var prop = axis === "horizontal" ? "layoutSizingHorizontal" : "layoutSizingVertical";
+  try {
+    (node as any)[prop] = value;
+  } catch (_e) {
+    // Parent isn't auto-layout, skip
   }
 }
 
@@ -153,7 +165,6 @@ function applyLayout(node: FrameNode, pen: PenNode) {
 
   if (pen.gap !== undefined) node.itemSpacing = pen.gap;
 
-  // Padding
   if (pen.padding !== undefined) {
     if (typeof pen.padding === "number") {
       node.paddingTop = pen.padding;
@@ -173,157 +184,104 @@ function applyLayout(node: FrameNode, pen: PenNode) {
     }
   }
 
-  // Alignment
-  const justifyMap: Record<string, "MIN" | "CENTER" | "MAX" | "SPACE_BETWEEN"> = {
-    start: "MIN",
-    center: "CENTER",
-    end: "MAX",
-    space_between: "SPACE_BETWEEN",
+  var justifyMap: Record<string, string> = {
+    start: "MIN", center: "CENTER", end: "MAX",
+    space_between: "SPACE_BETWEEN", space_around: "SPACE_BETWEEN",
   };
   if (pen.justifyContent) {
-    node.primaryAxisAlignItems = justifyMap[pen.justifyContent] || "MIN";
+    node.primaryAxisAlignItems = (justifyMap[pen.justifyContent] || "MIN") as any;
   }
 
-  const alignMap: Record<string, "MIN" | "CENTER" | "MAX"> = {
-    start: "MIN",
-    center: "CENTER",
-    end: "MAX",
-  };
+  var alignMap: Record<string, string> = { start: "MIN", center: "CENTER", end: "MAX" };
   if (pen.alignItems) {
-    node.counterAxisAlignItems = alignMap[pen.alignItems] || "MIN";
+    node.counterAxisAlignItems = (alignMap[pen.alignItems] || "MIN") as any;
   }
 }
 
-// -- Sizing --
+// -- Sizing helpers --
 
-function trySetLayoutSizing(node: SceneNode, prop: string, value: string) {
-  try {
-    (node as any)[prop] = value;
-  } catch (_e) {
-    // Node isn't in an auto-layout parent, skip
-  }
-}
-
-function applySizing(node: FrameNode, pen: PenNode) {
-  const applyAxis = (
-    value: number | string | undefined,
-    axis: "horizontal" | "vertical",
-  ) => {
-    const prop =
-      axis === "horizontal" ? "layoutSizingHorizontal" : "layoutSizingVertical";
-
-    if (typeof value === "string") {
-      if (value === "fill_container") {
-        trySetLayoutSizing(node, prop, "FILL");
-        return;
-      }
-      if (value.startsWith("fit_content")) {
-        trySetLayoutSizing(node, prop, "HUG");
-        return;
-      }
-    }
-
-    if (typeof value === "number") {
-      if (axis === "horizontal") node.resize(value, node.height);
-      else node.resize(node.width, value);
-      trySetLayoutSizing(node, prop, "FIXED");
-      return;
-    }
-
-    // Default: HUG for auto-layout frames
-    if (node.layoutMode !== "NONE") {
-      trySetLayoutSizing(node, prop, "HUG");
-    }
-  };
-
-  if (node.layoutMode !== "NONE") {
-    applyAxis(pen.width, "horizontal");
-    applyAxis(pen.height, "vertical");
-  } else {
-    if (typeof pen.width === "number") node.resize(pen.width, node.height);
-    if (typeof pen.height === "number") node.resize(node.width, pen.height as number);
-  }
+function getSizingValue(value: number | string | undefined): "FILL" | "HUG" | "FIXED" | null {
+  if (value === "fill_container") return "FILL";
+  if (typeof value === "string" && value.startsWith("fit_content")) return "HUG";
+  if (typeof value === "number") return "FIXED";
+  return null; // undefined = use default
 }
 
 // -- Node creators --
 
 async function createFrame(pen: PenNode, parent: BaseNode & ChildrenMixin): Promise<FrameNode> {
-  const node = figma.createFrame();
+  var node = figma.createFrame();
   node.name = pen.name || pen.id || "Frame";
-
   var isTopLevel = parent === figma.currentPage;
-  var hasFixedWidth = typeof pen.width === "number";
-  var hasFixedHeight = typeof pen.height === "number";
-  var isFillW = pen.width === "fill_container";
-  var isFillH = pen.height === "fill_container";
 
-  // Set explicit size — use 1 for fill_container (Figma will override when FILL is set)
+  var widthSizing = getSizingValue(pen.width);
+  var heightSizing = getSizingValue(pen.height);
+  var numWidth = typeof pen.width === "number" ? pen.width : 0;
+  var numHeight = typeof pen.height === "number" ? pen.height : 0;
+
+  // Initial size: use explicit dimensions, or minimal placeholder for FILL, or auto for HUG
   node.resize(
-    hasFixedWidth ? (pen.width as number) : (isFillW ? 1 : 100),
-    hasFixedHeight ? (pen.height as number) : (isFillH ? 1 : 100)
+    numWidth > 0 ? numWidth : 10,
+    numHeight > 0 ? numHeight : 10
   );
 
-  // Fills
-  var fills = convertFills(pen.fill);
-  node.fills = fills.length > 0 ? fills : [];
-
-  // Stroke
-  if (pen.stroke) applyStroke(node, pen.stroke);
-
-  // Corner radius
-  applyCornerRadius(node, pen.cornerRadius);
-
-  // Effects
-  if (pen.effect) node.effects = convertEffects(pen.effect);
-
-  // Clip
-  if (pen.clip) node.clipsContent = true;
-
-  // Opacity
-  if (pen.opacity !== undefined) node.opacity = pen.opacity;
-
-  // Layout mode
+  // Set layout mode (must happen before sizing)
   applyLayout(node, pen);
 
-  // Set sizing on the frame itself
+  // Apply visual properties
+  applyVisuals(node, pen);
+
+  // Clipping
+  if (pen.clip) node.clipsContent = true;
+
+  // STEP 1: Append to parent (MUST happen before setting FILL/HUG)
+  parent.appendChild(node);
+
+  // STEP 2: Set sizing AFTER append
   if (node.layoutMode !== "NONE") {
-    // Fixed dimensions
-    if (hasFixedWidth) {
-      node.layoutSizingHorizontal = "FIXED";
-    }
-    if (hasFixedHeight) {
-      node.layoutSizingVertical = "FIXED";
+    if (isTopLevel) {
+      // Top-level screens: always FIXED
+      setSizing(node, "horizontal", "FIXED");
+      setSizing(node, "vertical", "FIXED");
     }
   }
 
-  // Position (only for absolute or top-level)
-  if (pen.layoutPosition === "absolute" || isTopLevel) {
+  if (!isTopLevel) {
+    // Horizontal sizing
+    if (widthSizing === "FILL") {
+      setSizing(node, "horizontal", "FILL");
+    } else if (widthSizing === "HUG") {
+      setSizing(node, "horizontal", "HUG");
+    } else if (widthSizing === "FIXED" && node.layoutMode !== "NONE") {
+      setSizing(node, "horizontal", "FIXED");
+    }
+    // If undefined, Figma defaults to HUG for auto-layout children
+
+    // Vertical sizing
+    if (heightSizing === "FILL") {
+      setSizing(node, "vertical", "FILL");
+    } else if (heightSizing === "HUG") {
+      setSizing(node, "vertical", "HUG");
+    } else if (heightSizing === "FIXED" && node.layoutMode !== "NONE") {
+      setSizing(node, "vertical", "FIXED");
+    }
+  }
+
+  // STEP 3: Handle absolute positioning
+  if (pen.layoutPosition === "absolute") {
+    try { (node as any).layoutPositioning = "ABSOLUTE"; } catch (_e) { /* skip */ }
+    if (pen.x !== undefined) node.x = pen.x;
+    if (pen.y !== undefined) node.y = pen.y;
+  } else if (isTopLevel) {
     node.x = pen.x || 0;
     node.y = pen.y || 0;
   }
 
-  // Append to parent BEFORE setting fill sizing (parent must have auto-layout)
-  parent.appendChild(node);
-
-  // Set fill_container/fit_content sizing (must happen after appending to parent)
-  if (!isTopLevel) {
-    if (isFillW) {
-      trySetLayoutSizing(node, "layoutSizingHorizontal", "FILL");
-    } else if (typeof pen.width === "string" && pen.width.startsWith("fit_content")) {
-      trySetLayoutSizing(node, "layoutSizingHorizontal", "HUG");
-    }
-    if (isFillH) {
-      trySetLayoutSizing(node, "layoutSizingVertical", "FILL");
-    } else if (typeof pen.height === "string" && pen.height.startsWith("fit_content")) {
-      trySetLayoutSizing(node, "layoutSizingVertical", "HUG");
-    }
-  }
-
-  // Build children
+  // STEP 4: Build children
   if (pen.children) {
     for (var ci = 0; ci < pen.children.length; ci++) {
       var child = pen.children[ci];
-      if (typeof child === "string") continue; // Skip "..." truncation markers
+      if (typeof child === "string") continue;
       await convertNode(child, node);
     }
   }
@@ -332,55 +290,37 @@ async function createFrame(pen: PenNode, parent: BaseNode & ChildrenMixin): Prom
 }
 
 async function createText(pen: PenNode, parent: BaseNode & ChildrenMixin): Promise<TextNode> {
-  const node = figma.createText();
-  node.name = pen.name || pen.content?.slice(0, 20) || "Text";
+  var node = figma.createText();
+  node.name = pen.name || (pen.content ? pen.content.slice(0, 30) : "Text");
 
   // Load font
-  const fontName = await loadFont(
-    pen.fontFamily,
-    pen.fontWeight,
-    pen.fontStyle === "italic"
-  );
+  var fontName = await loadFont(pen.fontFamily, pen.fontWeight, pen.fontStyle === "italic");
   node.fontName = fontName;
-
-  // Set content
   node.characters = pen.content || "";
 
-  // Font size
   if (pen.fontSize) node.fontSize = pen.fontSize;
 
-  // Letter spacing
   if (pen.letterSpacing !== undefined) {
     node.letterSpacing = { value: pen.letterSpacing, unit: "PIXELS" };
   }
 
-  // Line height
   if (pen.lineHeight !== undefined) {
     node.lineHeight = { value: pen.lineHeight * 100, unit: "PERCENT" };
   }
 
-  // Text alignment
   if (pen.textAlign) {
-    const alignMap: Record<string, "LEFT" | "CENTER" | "RIGHT" | "JUSTIFIED"> = {
-      left: "LEFT",
-      center: "CENTER",
-      right: "RIGHT",
-      justify: "JUSTIFIED",
-    };
-    node.textAlignHorizontal = alignMap[pen.textAlign] || "LEFT";
+    var hAlignMap: Record<string, string> = { left: "LEFT", center: "CENTER", right: "RIGHT", justify: "JUSTIFIED" };
+    node.textAlignHorizontal = (hAlignMap[pen.textAlign] || "LEFT") as any;
   }
 
   if (pen.textAlignVertical) {
-    const vAlignMap: Record<string, "TOP" | "CENTER" | "BOTTOM"> = {
-      top: "TOP",
-      middle: "CENTER",
-      bottom: "BOTTOM",
-    };
-    node.textAlignVertical = vAlignMap[pen.textAlignVertical] || "TOP";
+    var vAlignMap: Record<string, string> = { top: "TOP", middle: "CENTER", bottom: "BOTTOM" };
+    node.textAlignVertical = (vAlignMap[pen.textAlignVertical] || "TOP") as any;
   }
 
-  // Text auto-resize (textGrowth)
-  if (pen.textGrowth === "fixed-width") {
+  // Text auto-resize: depends on textGrowth AND width
+  var wantsFill = pen.width === "fill_container";
+  if (pen.textGrowth === "fixed-width" || wantsFill) {
     node.textAutoResize = "HEIGHT";
     if (typeof pen.width === "number") node.resize(pen.width, node.height);
   } else if (pen.textGrowth === "fixed-width-height") {
@@ -393,23 +333,23 @@ async function createText(pen: PenNode, parent: BaseNode & ChildrenMixin): Promi
   }
 
   // Fill (text color)
-  const fills = convertFills(pen.fill);
+  var fills = convertFills(pen.fill);
   if (fills.length > 0) node.fills = fills;
 
-  // Opacity
   if (pen.opacity !== undefined) node.opacity = pen.opacity;
 
-  // Handle fill_container width in auto-layout parents
-  if (pen.width === "fill_container") {
-    trySetLayoutSizing(node, "layoutSizingHorizontal", "FILL");
+  // APPEND first, then set layout sizing
+  parent.appendChild(node);
+
+  if (wantsFill) {
+    setSizing(node, "horizontal", "FILL");
   }
 
-  parent.appendChild(node);
   return node;
 }
 
 function createRectangle(pen: PenNode, parent: BaseNode & ChildrenMixin): RectangleNode {
-  const node = figma.createRectangle();
+  var node = figma.createRectangle();
   node.name = pen.name || "Rectangle";
 
   node.resize(
@@ -417,23 +357,26 @@ function createRectangle(pen: PenNode, parent: BaseNode & ChildrenMixin): Rectan
     typeof pen.height === "number" ? pen.height : 100
   );
 
-  const fills = convertFills(pen.fill);
-  node.fills = fills.length > 0 ? fills : [];
+  applyVisuals(node, pen);
 
-  if (pen.stroke) applyStroke(node, pen.stroke);
-  applyCornerRadius(node, pen.cornerRadius);
+  // Append first
+  parent.appendChild(node);
 
-  if (pen.opacity !== undefined) node.opacity = pen.opacity;
+  // Handle fill_container sizing
+  if (pen.width === "fill_container") setSizing(node, "horizontal", "FILL");
+  if (pen.height === "fill_container") setSizing(node, "vertical", "FILL");
 
+  // Position (for absolute children)
   if (pen.x !== undefined) node.x = pen.x;
   if (pen.y !== undefined) node.y = pen.y;
 
-  parent.appendChild(node);
+  if (pen.rotation !== undefined) node.rotation = pen.rotation;
+
   return node;
 }
 
 function createEllipse(pen: PenNode, parent: BaseNode & ChildrenMixin): EllipseNode {
-  const node = figma.createEllipse();
+  var node = figma.createEllipse();
   node.name = pen.name || "Ellipse";
 
   node.resize(
@@ -441,36 +384,36 @@ function createEllipse(pen: PenNode, parent: BaseNode & ChildrenMixin): EllipseN
     typeof pen.height === "number" ? pen.height : 40
   );
 
-  const fills = convertFills(pen.fill);
-  node.fills = fills.length > 0 ? fills : [];
+  applyVisuals(node, pen);
 
-  if (pen.stroke) applyStroke(node, pen.stroke as any);
+  parent.appendChild(node);
 
-  if (pen.opacity !== undefined) node.opacity = pen.opacity;
+  if (pen.width === "fill_container") setSizing(node, "horizontal", "FILL");
+  if (pen.height === "fill_container") setSizing(node, "vertical", "FILL");
 
   if (pen.x !== undefined) node.x = pen.x;
   if (pen.y !== undefined) node.y = pen.y;
 
-  parent.appendChild(node);
+  if (pen.rotation !== undefined) node.rotation = pen.rotation;
+
   return node;
 }
 
 async function createIconPlaceholder(pen: PenNode, parent: BaseNode & ChildrenMixin): Promise<FrameNode> {
-  const size = typeof pen.width === "number" ? pen.width : 24;
-  const node = figma.createFrame();
-  node.name = `icon/${pen.iconFontName || "unknown"}`;
+  var size = typeof pen.width === "number" ? pen.width : 24;
+  var node = figma.createFrame();
+  node.name = "icon/" + (pen.iconFontName || "unknown");
   node.resize(size, typeof pen.height === "number" ? pen.height : size);
   node.layoutMode = "VERTICAL";
   node.primaryAxisAlignItems = "CENTER";
   node.counterAxisAlignItems = "CENTER";
 
-  // Use the fill color as background tint
-  const fills = convertFills(pen.fill);
+  var fills = convertFills(pen.fill);
   if (fills.length > 0) {
-    // Create a subtle background from the icon color
-    const paint = fills[0] as SolidPaint;
-    if (paint.type === "SOLID") {
-      node.fills = [{ ...paint, opacity: (paint.opacity ?? 1) * 0.15 }];
+    var paint = fills[0];
+    if (paint && paint.type === "SOLID") {
+      var solid = paint as SolidPaint;
+      node.fills = [{ type: "SOLID", color: solid.color, opacity: (solid.opacity || 1) * 0.15 }];
     }
   } else {
     node.fills = [];
@@ -478,23 +421,29 @@ async function createIconPlaceholder(pen: PenNode, parent: BaseNode & ChildrenMi
 
   node.cornerRadius = size / 2;
   node.clipsContent = true;
+  if (pen.opacity !== undefined) node.opacity = pen.opacity;
 
-  // Add icon name as tiny label
-  const label = figma.createText();
-  const fontName = await loadFont("Inter", "400", false);
-  label.fontName = fontName;
+  // Append first
+  parent.appendChild(node);
+
+  // Add icon name label
+  var label = figma.createText();
+  var labelFont = await loadFont("Inter", "400", false);
+  label.fontName = labelFont;
   label.characters = pen.iconFontName || "?";
   label.fontSize = Math.max(7, Math.min(size * 0.3, 10));
-  const textFills = convertFills(pen.fill);
+  var textFills = convertFills(pen.fill);
   if (textFills.length > 0) label.fills = textFills;
   label.textAutoResize = "WIDTH_AND_HEIGHT";
   node.appendChild(label);
 
-  if (pen.opacity !== undefined) node.opacity = pen.opacity;
+  // Handle positioning
+  if (pen.layoutPosition === "absolute") {
+    try { (node as any).layoutPositioning = "ABSOLUTE"; } catch (_e) { /* skip */ }
+  }
   if (pen.x !== undefined) node.x = pen.x;
   if (pen.y !== undefined) node.y = pen.y;
 
-  parent.appendChild(node);
   return node;
 }
 
@@ -502,7 +451,7 @@ async function createIconPlaceholder(pen: PenNode, parent: BaseNode & ChildrenMi
 
 export async function convertNode(pen: PenNode, parent: BaseNode & ChildrenMixin): Promise<SceneNode | null> {
   if (pen.enabled === false) return null;
-  if (typeof pen === "string") return null; // Skip "..." truncation
+  if (typeof pen === "string") return null;
 
   switch (pen.type) {
     case "frame":
@@ -522,10 +471,8 @@ export async function convertNode(pen: PenNode, parent: BaseNode & ChildrenMixin
       return createIconPlaceholder(pen, parent);
     case "path":
     case "polygon":
-      // Placeholder for complex shapes
       return createRectangle(pen, parent);
     default:
-      console.log(`Skipping unknown node type: ${pen.type}`);
       return null;
   }
 }
