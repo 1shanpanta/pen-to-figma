@@ -41,7 +41,7 @@ export async function loadFont(
       const fontName = { family: targetFamily, style };
       await figma.loadFontAsync(fontName);
       return fontName;
-    } catch {
+    } catch (_e) {
       // Style not available, try next
     }
   }
@@ -51,7 +51,7 @@ export async function loadFont(
     const fontName = { family: targetFamily, style: "Regular" };
     await figma.loadFontAsync(fontName);
     return fontName;
-  } catch {
+  } catch (_e) {
     // Family not available at all, fall back to Inter
   }
 
@@ -85,7 +85,7 @@ export async function preloadFonts(nodes: any[]): Promise<void> {
   // Always load Inter Regular as the ultimate fallback
   try {
     await figma.loadFontAsync(FALLBACK_FONT);
-  } catch {
+  } catch (_e) {
     // If even Inter isn't available, we're in trouble
   }
 }
