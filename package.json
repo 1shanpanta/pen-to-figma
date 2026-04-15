@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "build": "esbuild src/code.ts --bundle --outfile=dist/code.js --target=es2020",
-    "watch": "esbuild src/code.ts --bundle --outfile=dist/code.js --target=es2020 --watch"
+    "build": "esbuild src/code.ts --bundle --outfile=dist/code.js --target=es6",
+    "watch": "esbuild src/code.ts --bundle --outfile=dist/code.js --target=es6 --watch"
   },
   "devDependencies": {
-    "@figma/plugin-typings": "1.108.0",
-    "esbuild": "0.25.4"
+    "@figma/plugin-typings": "1.124.0",
+    "esbuild": "0.28.0"
   }
 }
