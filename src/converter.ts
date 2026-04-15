@@ -247,14 +247,18 @@ async function createFrame(pen: PenNode, parent: BaseNode & ChildrenMixin): Prom
   const node = figma.createFrame();
   node.name = pen.name || pen.id || "Frame";
 
-  // Start with a default size before layout kicks in
+  var isTopLevel = parent === figma.currentPage;
+  var hasFixedWidth = typeof pen.width === "number";
+  var hasFixedHeight = typeof pen.height === "number";
+
+  // Set explicit size first
   node.resize(
-    typeof pen.width === "number" ? pen.width : 100,
-    typeof pen.height === "number" ? pen.height : 100
+    hasFixedWidth ? (pen.width as number) : 100,
+    hasFixedHeight ? (pen.height as number) : 100
   );
 
   // Fills
-  const fills = convertFills(pen.fill);
+  var fills = convertFills(pen.fill);
   node.fills = fills.length > 0 ? fills : [];
 
   // Stroke
@@ -272,11 +276,21 @@ async function createFrame(pen: PenNode, parent: BaseNode & ChildrenMixin): Prom
   // Opacity
   if (pen.opacity !== undefined) node.opacity = pen.opacity;
 
-  // Layout
+  // Layout mode
   applyLayout(node, pen);
 
+  // For top-level frames or frames with explicit dimensions, lock sizing to FIXED
+  if (node.layoutMode !== "NONE") {
+    if (hasFixedWidth) {
+      node.layoutSizingHorizontal = "FIXED";
+    }
+    if (hasFixedHeight) {
+      node.layoutSizingVertical = "FIXED";
+    }
+  }
+
   // Position (only for absolute or top-level)
-  if (pen.layoutPosition === "absolute" || parent === figma.currentPage) {
+  if (pen.layoutPosition === "absolute" || isTopLevel) {
     node.x = pen.x || 0;
     node.y = pen.y || 0;
   }
@@ -285,15 +299,28 @@ async function createFrame(pen: PenNode, parent: BaseNode & ChildrenMixin): Prom
 
   // Build children
   if (pen.children) {
-    for (const child of pen.children) {
+    for (var ci = 0; ci < pen.children.length; ci++) {
+      var child = pen.children[ci];
       if (typeof child === "string") continue; // Skip "..." truncation markers
       await convertNode(child, node);
     }
   }
 
-  // Apply sizing after children exist (HUG needs children)
-  if (node.layoutMode !== "NONE") {
-    applySizing(node, pen);
+  // Apply dynamic sizing (fill_container, fit_content) AFTER children exist
+  // But don't override fixed dimensions on top-level screens
+  if (node.layoutMode !== "NONE" && !isTopLevel) {
+    if (!hasFixedWidth && pen.width !== undefined) {
+      trySetLayoutSizing(node, "layoutSizingHorizontal",
+        pen.width === "fill_container" ? "FILL" :
+        typeof pen.width === "string" && pen.width.startsWith("fit_content") ? "HUG" : "FIXED"
+      );
+    }
+    if (!hasFixedHeight && pen.height !== undefined) {
+      trySetLayoutSizing(node, "layoutSizingVertical",
+        pen.height === "fill_container" ? "FILL" :
+        typeof pen.height === "string" && pen.height.startsWith("fit_content") ? "HUG" : "FIXED"
+      );
+    }
   }
 
   return node;
