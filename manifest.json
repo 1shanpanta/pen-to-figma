@@ -1,0 +1,11 @@
+{
+  "name": "Pen to Figma",
+  "id": "pen-to-figma-converter",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "networkAccess": {
+    "allowedDomains": ["none"]
+  }
+}
