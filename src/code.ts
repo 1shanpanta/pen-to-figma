@@ -34,8 +34,9 @@ figma.ui.onmessage = async (msg: { type: string; data?: string }) => {
         message: `Creating ${nodes.length} screens...`,
       });
 
-      // Convert each top-level node
+      // Convert each top-level node (continue on per-screen errors)
       const created: SceneNode[] = [];
+      let errors = 0;
       for (let i = 0; i < nodes.length; i++) {
         const node = nodes[i];
         figma.ui.postMessage({
@@ -43,8 +44,13 @@ figma.ui.onmessage = async (msg: { type: string; data?: string }) => {
           message: `Creating screen ${i + 1}/${nodes.length}: ${node.name || node.id}`,
         });
 
-        const figmaNode = await convertNode(node, figma.currentPage);
-        if (figmaNode) created.push(figmaNode);
+        try {
+          const figmaNode = await convertNode(node, figma.currentPage);
+          if (figmaNode) created.push(figmaNode);
+        } catch (screenErr) {
+          errors++;
+          console.error(`Failed screen ${i + 1} (${node.name || node.id}):`, screenErr);
+        }
       }
 
       // Select and zoom to the created nodes
@@ -53,10 +59,10 @@ figma.ui.onmessage = async (msg: { type: string; data?: string }) => {
         figma.viewport.scrollAndZoomIntoView(created);
       }
 
-      figma.ui.postMessage({
-        type: "done",
-        message: `Imported ${created.length} screens`,
-      });
+      const msg = errors > 0
+        ? `Imported ${created.length} screens (${errors} had errors)`
+        : `Imported ${created.length} screens`;
+      figma.ui.postMessage({ type: "done", message: msg });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       figma.ui.postMessage({ type: "error", message });

@@ -192,22 +192,29 @@ function applyLayout(node: FrameNode, pen: PenNode) {
 
 // -- Sizing --
 
+function trySetLayoutSizing(node: SceneNode, prop: string, value: string) {
+  try {
+    (node as any)[prop] = value;
+  } catch (_e) {
+    // Node isn't in an auto-layout parent, skip
+  }
+}
+
 function applySizing(node: FrameNode, pen: PenNode) {
   const applyAxis = (
     value: number | string | undefined,
     axis: "horizontal" | "vertical",
-    fallback: number
   ) => {
     const prop =
       axis === "horizontal" ? "layoutSizingHorizontal" : "layoutSizingVertical";
 
     if (typeof value === "string") {
       if (value === "fill_container") {
-        node[prop] = "FILL";
+        trySetLayoutSizing(node, prop, "FILL");
         return;
       }
       if (value.startsWith("fit_content")) {
-        node[prop] = "HUG";
+        trySetLayoutSizing(node, prop, "HUG");
         return;
       }
     }
@@ -215,19 +222,19 @@ function applySizing(node: FrameNode, pen: PenNode) {
     if (typeof value === "number") {
       if (axis === "horizontal") node.resize(value, node.height);
       else node.resize(node.width, value);
-      node[prop] = "FIXED";
+      trySetLayoutSizing(node, prop, "FIXED");
       return;
     }
 
     // Default: HUG for auto-layout frames
     if (node.layoutMode !== "NONE") {
-      node[prop] = "HUG";
+      trySetLayoutSizing(node, prop, "HUG");
     }
   };
 
   if (node.layoutMode !== "NONE") {
-    applyAxis(pen.width, "horizontal", 100);
-    applyAxis(pen.height, "vertical", 100);
+    applyAxis(pen.width, "horizontal");
+    applyAxis(pen.height, "vertical");
   } else {
     if (typeof pen.width === "number") node.resize(pen.width, node.height);
     if (typeof pen.height === "number") node.resize(node.width, pen.height as number);
@@ -361,8 +368,8 @@ async function createText(pen: PenNode, parent: BaseNode & ChildrenMixin): Promi
   if (pen.opacity !== undefined) node.opacity = pen.opacity;
 
   // Handle fill_container width in auto-layout parents
-  if (pen.width === "fill_container" || pen.textGrowth === "fixed-width") {
-    (node as any).layoutSizingHorizontal = pen.width === "fill_container" ? "FILL" : "FIXED";
+  if (pen.width === "fill_container") {
+    trySetLayoutSizing(node, "layoutSizingHorizontal", "FILL");
   }
 
   parent.appendChild(node);
